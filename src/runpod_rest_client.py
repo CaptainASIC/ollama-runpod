@@ -46,6 +46,33 @@ class RunPodRestClient:
         try:
             print(f"Sending pod deployment request to RunPod REST API")
             
+            # Convert env list to object (dictionary)
+            env_dict = {}
+            if "env" in config and isinstance(config["env"], list):
+                for env_var in config["env"]:
+                    if "key" in env_var and "value" in env_var:
+                        env_dict[env_var["key"]] = env_var["value"]
+            
+            # Convert ports string to array
+            ports_array = []
+            if "ports" in config and isinstance(config["ports"], str):
+                # Split by comma if multiple ports are provided
+                port_strings = config["ports"].split(",")
+                for port_str in port_strings:
+                    port_str = port_str.strip()
+                    if "/" in port_str:
+                        port, protocol = port_str.split("/", 1)
+                        ports_array.append({
+                            "port": int(port),
+                            "protocol": protocol.strip().upper()
+                        })
+                    else:
+                        # Default to TCP if protocol not specified
+                        ports_array.append({
+                            "port": int(port_str),
+                            "protocol": "TCP"
+                        })
+            
             # Format the config for the REST API
             rest_config = {
                 "name": config.get("name", "Ollama-Pod"),
@@ -54,8 +81,8 @@ class RunPodRestClient:
                 "volumeInGb": config.get("volumeInGb", 50),
                 "containerDiskInGb": config.get("containerDiskInGb", 5),
                 "gpuTypeId": config.get("gpuTypeId", "NVIDIA RTX A5000"),
-                "env": config.get("env", []),
-                "ports": config.get("ports", "11434/http"),
+                "env": env_dict,
+                "ports": ports_array,
                 "volumeMountPath": config.get("volumeMountPath", "/workspace")
             }
             
