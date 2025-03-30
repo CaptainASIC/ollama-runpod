@@ -1,54 +1,4 @@
-def deploy_pod_web_format(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Use the exact format from the web interface"""
-        print("Attempting deployment using web interface format...")
-        
-        # This query format is based on the actual requests made by the RunPod web interface
-        query = """
-        mutation OnDemandPodDeployMutation($input: OnDemandPodDeployInput!) {
-            podDeployOnDemand(input: $input) {
-                id
-                name
-                imageName
-                templateId
-                desiredStatus
-                lastStatusChange
-                env {
-                    key
-                    value
-                }
-                ports
-                gpuCount
-            }
-        }
-        """
-        
-        # Convert our config to the format used by the web interface
-        web_config = {
-            "containerDiskSize": config["containerDiskInGb"],
-            "dockerArgs": "",
-            "env": config["env"],
-            "gpuCount": config["gpuCount"],
-            "gpuTypeId": config["gpuTypeId"],
-            "imageName": config["containerImageName"],
-            "name": config["name"],
-            "ports": config["ports"],
-            "volumeSize": config["volumeInGb"],
-            "volumeMountPath": config["volumeMountPath"]
-        }
-        
-        try:
-            result = self.query(query, {"input": web_config})
-            
-            if "errors" in result:
-                print("Web format deployment failed:")
-                for error in result["errors"]:
-                    print(f"- {error['message']}")
-                return None
-            
-            return result["data"]["podDeployOnDemand"]
-        except Exception as e:
-            print(f"Web format deployment failed: {e}")
-            return None#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 deploy_pod.py - RunPod deployment utility for Ollama with auto-shutdown
 """
@@ -149,6 +99,58 @@ class RunPodClient:
         except requests.exceptions.RequestException as e:
             print(f"Error communicating with RunPod API: {e}")
             sys.exit(1)
+    
+    def deploy_pod_web_format(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Use the exact format from the web interface"""
+        print("Attempting deployment using web interface format...")
+        
+        # This query format is based on the actual requests made by the RunPod web interface
+        query = """
+        mutation OnDemandPodDeployMutation($input: OnDemandPodDeployInput!) {
+            podDeployOnDemand(input: $input) {
+                id
+                name
+                imageName
+                templateId
+                desiredStatus
+                lastStatusChange
+                env {
+                    key
+                    value
+                }
+                ports
+                gpuCount
+            }
+        }
+        """
+        
+        # Convert our config to the format used by the web interface
+        web_config = {
+            "containerDiskSize": config["containerDiskInGb"],
+            "dockerArgs": "",
+            "env": config["env"],
+            "gpuCount": config["gpuCount"],
+            "gpuTypeId": config["gpuTypeId"],
+            "imageName": config["containerImageName"],
+            "name": config["name"],
+            "ports": config["ports"],
+            "volumeSize": config["volumeInGb"],
+            "volumeMountPath": config["volumeMountPath"]
+        }
+        
+        try:
+            result = self.query(query, {"input": web_config})
+            
+            if "errors" in result:
+                print("Web format deployment failed:")
+                for error in result["errors"]:
+                    print(f"- {error['message']}")
+                return None
+            
+            return result["data"]["podDeployOnDemand"]
+        except Exception as e:
+            print(f"Web format deployment failed: {e}")
+            return None
     
     def deploy_pod_multi_attempt(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Try multiple deployment mutations until one succeeds"""
@@ -288,43 +290,6 @@ class RunPodClient:
         sys.exit(1)
 
 
-def parse_arguments() -> argparse.Namespace:
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(
-        description='Deploy an Ollama pod on RunPod with auto-shutdown capability',
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    
-    # Basic deployment arguments
-    parser.add_argument('--api-key', help='RunPod API key (optional if provided in env-file)')
-    parser.add_argument('--gpu-type', default='NVIDIA RTX A5000', help='GPU type')
-    parser.add_argument('--name', default='Ollama-Pod', help='Pod name')
-    parser.add_argument('--timeout', type=int, default=60, 
-                        help='Auto-shutdown timeout in seconds')
-    parser.add_argument('--container-disk-size-gb', type=int, default=5, 
-                        help='Container disk size in GB')
-    parser.add_argument('--volume-size-gb', type=int, default=50,
-                        help='Storage volume size in GB')
-    parser.add_argument('--min-vcpu', type=int, default=2,
-                        help='Minimum vCPU cores')
-    parser.add_argument('--min-memory-gb', type=int, default=15,
-                        help='Minimum memory in GB')
-    parser.add_argument('--image', default='runpod/pytorch:latest',
-                        help='Container image to use')
-    
-    # Environment variable arguments
-    parser.add_argument('--env-file', help='Path to environment file with KEY=VALUE pairs')
-    parser.add_argument('--preload-models', help='Comma-separated list of models to preload (e.g., "mistral,llama2")')
-    parser.add_argument('--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-                        help='Logging level')
-    parser.add_argument('--ollama-host', default='0.0.0.0', help='Ollama host interface binding')
-    
-    # Other arguments
-    parser.add_argument('--version', action='version', version=f'Ollama RunPod Deployer v{VERSION}')
-    
-    return parser.parse_args()
-
-
 def load_env_file(file_path: str) -> Dict[str, str]:
     """Load environment variables from a file"""
     env_vars = {}
@@ -411,20 +376,34 @@ def create_pod_config(args: argparse.Namespace) -> Dict[str, Any]:
         "name": args.name
     }
 
-
 def display_pod_info(pod: Dict[str, Any], args: argparse.Namespace) -> None:
     """Display information about the deployed pod"""
     print("\n" + "="*50)
     print(f"Pod deployed successfully!")
     print("="*50)
-    print(f"Pod ID: {pod['id']}")
-    print(f"Pod Name: {pod['name']}")
-    print(f"Started At: {pod['runtime']['startedAt']}")
-    print(f"Container Image: {pod['imageName']}")
+    
+    # Extract basic info
+    pod_id = pod.get('id', 'Unknown')
+    pod_name = pod.get('name', 'Unknown')
+    image_name = pod.get('imageName', 'Unknown')
+    
+    # Extract runtime info if available
+    runtime = pod.get('runtime', {})
+    started_at = runtime.get('startedAt', 'Unknown')
+    
+    # Extract machine info if available
+    machine = pod.get('machine', {})
+    gpu_type = machine.get('gpuDisplayName', args.gpu_type)
+    
+    print(f"Pod ID: {pod_id}")
+    print(f"Pod Name: {pod_name}")
+    if started_at != 'Unknown':
+        print(f"Started At: {started_at}")
+    print(f"Container Image: {image_name}")
+    print(f"GPU Type: {gpu_type}")
     
     print("\nConfiguration:")
     print(f"Auto-shutdown timeout: {args.timeout} seconds")
-    print(f"GPU Type: {args.gpu_type}")
     
     print("\nEnvironment Variables:")
     print(f"OLLAMA_HOST: {args.ollama_host}")
@@ -435,18 +414,53 @@ def display_pod_info(pod: Dict[str, Any], args: argparse.Namespace) -> None:
         print(f"Additional variables loaded from: {args.env_file}")
     
     print("\nAccess Information:")
-    print(f"Ollama API endpoint: https://{pod['id']}-11434.proxy.runpod.net/")
+    print(f"Ollama API endpoint: https://{pod_id}-11434.proxy.runpod.net/")
     
     print("\nSample API Requests:")
     print(f"# List models")
-    print(f"curl https://{pod['id']}-11434.proxy.runpod.net/api/tags")
+    print(f"curl https://{pod_id}-11434.proxy.runpod.net/api/tags")
     print(f"\n# Generate text")
-    print(f"curl -X POST https://{pod['id']}-11434.proxy.runpod.net/api/generate \\")
+    print(f"curl -X POST https://{pod_id}-11434.proxy.runpod.net/api/generate \\")
     print(f"  -d '{{\"model\": \"mistral\", \"prompt\":\"Hello world!\"}}'\n")
     
-    print(f"Auto-shutdown is configured for {timeout} seconds of inactivity.")
+    print(f"Auto-shutdown is configured for {args.timeout} seconds of inactivity.")
     print("="*50)
 
+def parse_arguments() -> argparse.Namespace:
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description='Deploy an Ollama pod on RunPod with auto-shutdown capability',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    
+    # Basic deployment arguments
+    parser.add_argument('--api-key', help='RunPod API key (optional if provided in env-file)')
+    parser.add_argument('--gpu-type', default='NVIDIA RTX A5000', help='GPU type')
+    parser.add_argument('--name', default='Ollama-Pod', help='Pod name')
+    parser.add_argument('--timeout', type=int, default=60, 
+                        help='Auto-shutdown timeout in seconds')
+    parser.add_argument('--container-disk-size-gb', type=int, default=5, 
+                        help='Container disk size in GB')
+    parser.add_argument('--volume-size-gb', type=int, default=50,
+                        help='Storage volume size in GB')
+    parser.add_argument('--min-vcpu', type=int, default=2,
+                        help='Minimum vCPU cores')
+    parser.add_argument('--min-memory-gb', type=int, default=15,
+                        help='Minimum memory in GB')
+    parser.add_argument('--image', default='runpod/pytorch:latest',
+                        help='Container image to use')
+    
+    # Environment variable arguments
+    parser.add_argument('--env-file', help='Path to environment file with KEY=VALUE pairs')
+    parser.add_argument('--preload-models', help='Comma-separated list of models to preload (e.g., "mistral,llama2")')
+    parser.add_argument('--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                        help='Logging level')
+    parser.add_argument('--ollama-host', default='0.0.0.0', help='Ollama host interface binding')
+    
+    # Other arguments
+    parser.add_argument('--version', action='version', version=f'Ollama RunPod Deployer v{VERSION}')
+    
+    return parser.parse_args()
 
 def main() -> None:
     """Main entry point"""
