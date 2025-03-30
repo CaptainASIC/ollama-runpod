@@ -165,7 +165,7 @@ def parse_arguments() -> argparse.Namespace:
                         help='Minimum vCPU cores')
     parser.add_argument('--min-memory-gb', type=int, default=15,
                         help='Minimum memory in GB')
-    parser.add_argument('--image', default='runpod/pytorch:2.8.0-py3.11-cuda12.8.1-cudnn-devel-ubuntu22.04',
+    parser.add_argument('--image', default='p3rco/ollama-podman',
                         help='Container image to use')
     
     # Environment variable arguments
