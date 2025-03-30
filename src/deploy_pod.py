@@ -102,24 +102,29 @@ class RunPodClient:
     
     def deploy_pod(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Deploy a pod with the given configuration"""
+        # Updated mutation to use podFindAndDeploy which is more robust
         query = """
-        mutation podDeployOnDemand($input: PodDeployOnDemandInput!) {
-            podDeployOnDemand(input: $input) {
-                id
-                name
-                runtime {
-                    ports {
-                        ip
-                        isIpPublic
-                        privatePort
-                        publicPort
-                    }
-                    startedAt
-                    uptimeSeconds
-                }
-                desiredStatus
-                imageName
+        mutation Deploy($input: PodFindAndDeployInput!) {
+          podFindAndDeploy(input: $input) {
+            id
+            name
+            runtime {
+              startedAt
+              uptimeSeconds
+              ports {
+                ip
+                isIpPublic
+                privatePort
+                publicPort
+              }
             }
+            imageName
+            machine {
+              gpuDisplayName
+              podHostId
+            }
+            desiredStatus
+          }
         }
         """
         
@@ -134,7 +139,7 @@ class RunPodClient:
                 print(f"- {error['message']}")
             sys.exit(1)
         
-        return result["data"]["podDeployOnDemand"]
+        return result["data"]["podFindAndDeploy"]
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -146,8 +151,7 @@ def parse_arguments() -> argparse.Namespace:
     
     # Basic deployment arguments
     parser.add_argument('--api-key', help='RunPod API key (optional if provided in env-file)')
-    parser.add_argument('--gpu-type', default='NVIDIA A40', help='GPU type')
-    parser.add_argument('--cloud-type', default='ALL', help='Cloud type')
+    parser.add_argument('--gpu-type', default='NVIDIA RTX A5000', help='GPU type')
     parser.add_argument('--name', default='Ollama-Pod', help='Pod name')
     parser.add_argument('--timeout', type=int, default=60, 
                         help='Auto-shutdown timeout in seconds')
@@ -155,6 +159,10 @@ def parse_arguments() -> argparse.Namespace:
                         help='Container disk size in GB')
     parser.add_argument('--volume-size-gb', type=int, default=50,
                         help='Storage volume size in GB')
+    parser.add_argument('--min-vcpu', type=int, default=2,
+                        help='Minimum vCPU cores')
+    parser.add_argument('--min-memory-gb', type=int, default=15,
+                        help='Minimum memory in GB')
     parser.add_argument('--image', default='runpod/pytorch:latest',
                         help='Container image to use')
     
@@ -232,19 +240,29 @@ def create_pod_config(args: argparse.Namespace) -> Dict[str, Any]:
                 "value": value
             })
     
-    # Format the pod configuration according to RunPod API requirements
+    # Correct GPU type format if needed
+    gpu_type = args.gpu_type
+    if "RTX 6000 Ada" in gpu_type and "Generation" not in gpu_type:
+        gpu_type = "NVIDIA RTX 6000 Ada Generation"
+        print(f"Note: Changed GPU type to '{gpu_type}' for compatibility")
+    elif not gpu_type.startswith("NVIDIA ") and gpu_type not in ["A100", "A40", "V100"]:
+        # Add NVIDIA prefix if needed for standard types
+        gpu_type = f"NVIDIA {gpu_type}"
+        print(f"Note: Changed GPU type to '{gpu_type}' for compatibility")
+        
+    # Format the pod configuration for podFindAndDeploy mutation
     return {
-        "cloudType": args.cloud_type,
         "gpuCount": 1,
-        "name": args.name,
-        "containerDiskSizeGB": args.container_disk_size_gb,
-        "gpuType": args.gpu_type,
-        "volumeInGB": args.volume_size_gb,
-        "volumeMountPath": "/workspace",
+        "volumeInGb": args.volume_size_gb,
+        "containerDiskInGb": args.container_disk_size_gb,
+        "minVcpu": args.min_vcpu,
+        "minMemoryInGb": args.min_memory_gb,
+        "gpuTypeId": gpu_type,
         "containerImageName": args.image,
-        "dockerArgs": "",
+        "env": env_vars,
         "ports": "11434/http",
-        "env": env_vars
+        "volumeMountPath": "/workspace",
+        "name": args.name
     }
 
 
@@ -324,6 +342,7 @@ def main() -> None:
     print(f"- Name: {args.name}")
     print(f"- GPU: {args.gpu_type}")
     print(f"- Auto-shutdown: {args.timeout} seconds")
+    print(f"- System: {args.min_vcpu} vCPU, {args.min_memory_gb} GB RAM")
     if args.preload_models:
         print(f"- Preload models: {args.preload_models}")
     if args.env_file:
