@@ -1,0 +1,42 @@
+FROM runpod/pytorch:latest
+
+LABEL maintainer="Your Name <your.email@example.com>"
+LABEL description="Ollama on RunPod with auto-shutdown capability"
+LABEL version="1.0.0"
+
+# Install dependencies
+RUN apt-get update && \
+    apt-get install -y \
+    curl \
+    lshw \
+    jq \
+    procps \
+    net-tools \
+    bc \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up application structure
+WORKDIR /app
+
+# Copy files
+COPY scripts/ /app/scripts/
+COPY config/ /app/config/
+COPY podman/entrypoint.sh /app/entrypoint.sh
+
+# Set permissions
+RUN chmod +x /app/scripts/*.sh && \
+    chmod +x /app/entrypoint.sh
+
+# Create workspace directory
+RUN mkdir -p /workspace/logs
+
+# Set environment variables
+ENV OLLAMA_HOST=0.0.0.0
+ENV INACTIVITY_TIMEOUT=60
+
+# Expose Ollama port
+EXPOSE 11434
+
+# Set entrypoint
+ENTRYPOINT ["/app/entrypoint.sh"]
