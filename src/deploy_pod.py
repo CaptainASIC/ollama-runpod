@@ -159,7 +159,7 @@ def parse_arguments() -> argparse.Namespace:
                         help='Auto-shutdown timeout in seconds')
     parser.add_argument('--container-disk-size-gb', type=int, default=5, 
                         help='Container disk size in GB')
-    parser.add_argument('--volume-size-gb', type=int, default=50,
+    parser.add_argument('--volume-size-gb', type=int, default=250,
                         help='Storage volume size in GB')
     parser.add_argument('--min-vcpu', type=int, default=2,
                         help='Minimum vCPU cores')
