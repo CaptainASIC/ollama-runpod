@@ -84,6 +84,7 @@ def parse_arguments() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     
+    # Basic deployment arguments
     parser.add_argument('--api-key', required=True, help='RunPod API key')
     parser.add_argument('--gpu-type', default='NVIDIA A40', help='GPU type')
     parser.add_argument('--cloud-type', default='ALL', help='Cloud type')
@@ -96,13 +97,81 @@ def parse_arguments() -> argparse.Namespace:
                         help='Storage volume size in GB')
     parser.add_argument('--image', default='runpod/pytorch:latest',
                         help='Container image to use')
+    
+    # Environment variable arguments
+    parser.add_argument('--env-file', help='Path to environment file with KEY=VALUE pairs')
+    parser.add_argument('--preload-models', help='Comma-separated list of models to preload (e.g., "mistral,llama2")')
+    parser.add_argument('--log-level', default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                        help='Logging level')
+    parser.add_argument('--ollama-host', default='0.0.0.0', help='Ollama host interface binding')
+    
+    # Other arguments
     parser.add_argument('--version', action='version', version=f'Ollama RunPod Deployer v{VERSION}')
     
     return parser.parse_args()
 
 
+def load_env_file(file_path: str) -> Dict[str, str]:
+    """Load environment variables from a file"""
+    env_vars = {}
+    if not file_path or not os.path.exists(file_path):
+        return env_vars
+    
+    try:
+        with open(file_path, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    key, value = line.split('=', 1)
+                    env_vars[key.strip()] = value.strip()
+    except Exception as e:
+        print(f"Warning: Failed to fully parse env file: {e}")
+    
+    return env_vars
+
 def create_pod_config(args: argparse.Namespace) -> Dict[str, Any]:
     """Create pod configuration from arguments"""
+    # Start with required environment variables
+    env_vars = [
+        {
+            "key": "OLLAMA_HOST",
+            "value": args.ollama_host
+        },
+        {
+            "key": "INACTIVITY_TIMEOUT",
+            "value": str(args.timeout)
+        },
+        {
+            "key": "RUNPOD_API_KEY",
+            "value": args.api_key
+        },
+        {
+            "key": "LOG_LEVEL",
+            "value": args.log_level
+        }
+    ]
+    
+    # Add preload models if specified
+    if args.preload_models:
+        env_vars.append({
+            "key": "PRELOAD_MODELS",
+            "value": args.preload_models
+        })
+    
+    # Load additional environment variables from file if specified
+    if args.env_file:
+        file_env_vars = load_env_file(args.env_file)
+        for key, value in file_env_vars.items():
+            # Skip variables we've already set
+            if key in ["OLLAMA_HOST", "INACTIVITY_TIMEOUT", "RUNPOD_API_KEY", "LOG_LEVEL", "PRELOAD_MODELS"]:
+                continue
+            env_vars.append({
+                "key": key,
+                "value": value
+            })
+    
     return {
         "cloudType": args.cloud_type,
         "gpuCount": 1,
@@ -114,24 +183,11 @@ def create_pod_config(args: argparse.Namespace) -> Dict[str, Any]:
         "containerImageName": args.image,
         "dockerArgs": "",
         "ports": "11434/http",
-        "env": [
-            {
-                "key": "OLLAMA_HOST",
-                "value": "0.0.0.0"
-            },
-            {
-                "key": "INACTIVITY_TIMEOUT",
-                "value": str(args.timeout)
-            },
-            {
-                "key": "RUNPOD_API_KEY",
-                "value": args.api_key
-            }
-        ]
+        "env": env_vars
     }
 
 
-def display_pod_info(pod: Dict[str, Any], timeout: int) -> None:
+def display_pod_info(pod: Dict[str, Any], args: argparse.Namespace) -> None:
     """Display information about the deployed pod"""
     print("\n" + "="*50)
     print(f"Pod deployed successfully!")
@@ -140,6 +196,18 @@ def display_pod_info(pod: Dict[str, Any], timeout: int) -> None:
     print(f"Pod Name: {pod['name']}")
     print(f"Started At: {pod['runtime']['startedAt']}")
     print(f"Container Image: {pod['imageName']}")
+    
+    print("\nConfiguration:")
+    print(f"Auto-shutdown timeout: {args.timeout} seconds")
+    print(f"GPU Type: {args.gpu_type}")
+    
+    print("\nEnvironment Variables:")
+    print(f"OLLAMA_HOST: {args.ollama_host}")
+    print(f"LOG_LEVEL: {args.log_level}")
+    if args.preload_models:
+        print(f"PRELOAD_MODELS: {args.preload_models}")
+    if args.env_file:
+        print(f"Additional variables loaded from: {args.env_file}")
     
     print("\nAccess Information:")
     print(f"Ollama API endpoint: https://{pod['id']}-11434.proxy.runpod.net/")
@@ -161,16 +229,34 @@ def main() -> None:
     args = parse_arguments()
     
     print(f"Deploying Ollama pod on RunPod with {args.gpu_type}...")
+    
+    # Display configuration summary
+    print("\nDeployment configuration:")
+    print(f"- Name: {args.name}")
+    print(f"- GPU: {args.gpu_type}")
+    print(f"- Auto-shutdown: {args.timeout} seconds")
+    if args.preload_models:
+        print(f"- Preload models: {args.preload_models}")
+    if args.env_file:
+        print(f"- Environment file: {args.env_file}")
+    
+    # Ask for confirmation
+    confirm = input("\nProceed with deployment? (y/n): ")
+    if confirm.lower() not in ['y', 'yes']:
+        print("Deployment cancelled.")
+        return
+    
     client = RunPodClient(args.api_key)
     
     # Create pod configuration
     pod_config = create_pod_config(args)
     
     # Deploy pod
+    print("Deploying pod... (this may take a minute)")
     pod = client.deploy_pod(pod_config)
     
     # Display pod information
-    display_pod_info(pod, args.timeout)
+    display_pod_info(pod, args)
 
 
 if __name__ == "__main__":

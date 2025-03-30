@@ -1,6 +1,22 @@
 #!/bin/bash
 # scripts/model-manager.sh - Utility for managing Ollama models
 
+# Load runtime environment if available
+if [ -f "/workspace/config/runtime.env" ]; then
+    source /workspace/config/runtime.env
+fi
+
+# Set default values for environment variables if not already set
+OLLAMA_HOST=${OLLAMA_HOST:-"0.0.0.0"}
+LOG_LEVEL=${LOG_LEVEL:-"INFO"}
+OLLAMA_MODELS=${OLLAMA_MODELS:-""}
+
+# Export Ollama variables
+if [ -n "$OLLAMA_MODELS" ]; then
+    export OLLAMA_MODELS
+fi
+export OLLAMA_HOST
+
 # Ensure logs directory exists
 mkdir -p /workspace/logs
 LOG_FILE="/workspace/logs/model-manager.log"

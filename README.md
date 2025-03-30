@@ -1,11 +1,38 @@
-# Ollama on RunPod with Auto-Shutdown
+## Environment Configuration
+
+You can customize your Ollama RunPod instance using environment variables, which can be set at different stages:
+
+### Interactive Configuration
+
+The easiest way to create a custom configuration is to use the interactive script:
+
+```bash
+# Create a custom configuration file
+./scripts/create-config.sh
+
+# Use the generated config with deployment
+python src/deploy_pod.py --api-key YOUR_API_KEY --env-file ./config/my-config.env
+```
+
+### Available Configuration Options
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OLLAMA_HOST` | Network interface binding | `0.0.0.0` |
+| `INACTIVITY_TIMEOUT` | Seconds before auto-shutdown | `60` |
+| `LOG_LEVEL` | Logging verbosity | `INFO` |
+| `PRELOAD_MODELS` | Models to pull on startup | |
+| `ACTIVITY_THRESHOLD` | CPU % threshold for activity | `5.0` |
+| `OLLAMA_MODELS` | Custom model storage location | |
+
+For more detailed configuration options, see the [Usage Guide](docs/USAGE.md).# Ollama on RunPod with Auto-Shutdown
 
 A professional-grade implementation for running Ollama on RunPod GPU instances with automatic shutdown capability to optimize costs.
 
 ## Features
 
 - Production-ready deployment of Ollama on RunPod GPU instances
-- Smart auto-shutdown functionality that monitors inactivity (default: 60 seconds)
+- Smart auto-shutdown functionality that monitors inactivity
 - Comprehensive API access through RunPod's proxy system
 - Support for the full range of LLMs available through Ollama
 - Configurable timeouts and resource allocation
@@ -34,18 +61,35 @@ cd ollama-runpod
 # Install dependencies
 pip install -r requirements.txt
 
-# Deploy a pod (requires RunPod API key)
+# Basic deployment with default settings
 python src/deploy_pod.py --api-key YOUR_API_KEY
+
+# Deployment with custom environment settings
+python src/deploy_pod.py --api-key YOUR_API_KEY \
+  --timeout 300 \
+  --gpu-type "NVIDIA RTX A5000" \
+  --preload-models "mistral,llama2" \
+  --log-level DEBUG
+
+# Deployment using environment file
+python src/deploy_pod.py --api-key YOUR_API_KEY --env-file ./config/my-config.env
 ```
 
 ### Option 2: Build and Push Container with Podman
 
 ```bash
-# Build the container image
+# Basic build with default settings
 ./scripts/podman-build.sh --name ollama-runpod --tag latest
 
-# Push to a registry (optional)
-./scripts/podman-build.sh --name ollama-runpod --tag latest --push --registry quay.io/yourusername
+# Build with custom environment settings
+./scripts/podman-build.sh --name ollama-runpod --tag latest \
+  --env-file ./config/my-config.env \
+  --models "mistral,llama2"
+
+# Build and push to a registry
+./scripts/podman-build.sh --name ollama-runpod --tag latest \
+  --env-file ./config/my-config.env \
+  --push --registry quay.io/yourusername
 ```
 
 ### Option 3: Manual Deployment on RunPod
@@ -56,9 +100,11 @@ python src/deploy_pod.py --api-key YOUR_API_KEY
    - Container Image: `quay.io/yourusername/ollama-runpod:latest` (or your custom image)
    - Expose port: `11434` (required for Ollama API)
    - Set environment variables:
-     - `OLLAMA_HOST=0.0.0.0`
+     - `OLLAMA_HOST=0.0.0.0` (required)
      - `INACTIVITY_TIMEOUT=60` (seconds)
      - `RUNPOD_API_KEY=your_api_key` (for auto-shutdown)
+     - `PRELOAD_MODELS=mistral,llama2` (optional)
+     - `LOG_LEVEL=INFO` (optional)
 4. Deploy the pod
 
 ## Auto-Shutdown Functionality
@@ -91,6 +137,14 @@ The pod automatically monitors activity and will shut down after the specified p
 ```bash
 podman run -p 11434:11434 -e OLLAMA_HOST=0.0.0.0 -e INACTIVITY_TIMEOUT=60 ollama-runpod:latest
 ```
+
+### Why Podman?
+
+We use Podman instead of Docker for several advantages:
+- Daemonless architecture (doesn't require a background service)
+- Rootless containers (can run without elevated privileges)
+- OCI-compliant
+- Drop-in replacement for Docker with compatible CLI
 
 ## Contributing
 

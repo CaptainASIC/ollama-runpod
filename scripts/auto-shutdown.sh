@@ -11,19 +11,61 @@ fi
 
 # Define the inactivity timeout in seconds (default: 60 seconds if not set)
 INACTIVITY_TIMEOUT=${INACTIVITY_TIMEOUT:-60}
+LOG_LEVEL=${LOG_LEVEL:-INFO}
 LOG_FILE="/workspace/logs/autoshutdown.log"
+ACTIVITY_THRESHOLD=${ACTIVITY_THRESHOLD:-5.0}  # CPU threshold to consider active
+
+# Configure logging based on LOG_LEVEL
+LOG_DEBUG=true
+LOG_INFO=true
+LOG_WARN=true
+LOG_ERROR=true
+
+case "$LOG_LEVEL" in
+  DEBUG)
+    # All logging enabled by default
+    ;;
+  INFO)
+    LOG_DEBUG=false
+    ;;
+  WARNING|WARN)
+    LOG_DEBUG=false
+    LOG_INFO=false
+    ;;
+  ERROR)
+    LOG_DEBUG=false
+    LOG_INFO=false
+    LOG_WARN=false
+    ;;
+  *)
+    echo "Unknown LOG_LEVEL: $LOG_LEVEL, defaulting to INFO"
+    LOG_DEBUG=false
+    ;;
+esac
 
 # Log functions
+log_debug() {
+    if [ "$LOG_DEBUG" = true ]; then
+        echo "$(date): [DEBUG] $1" | tee -a "$LOG_FILE"
+    fi
+}
+
 log_info() {
-    echo "$(date): [INFO] $1" | tee -a "$LOG_FILE"
+    if [ "$LOG_INFO" = true ]; then
+        echo "$(date): [INFO] $1" | tee -a "$LOG_FILE"
+    fi
 }
 
 log_warn() {
-    echo "$(date): [WARN] $1" | tee -a "$LOG_FILE"
+    if [ "$LOG_WARN" = true ]; then
+        echo "$(date): [WARN] $1" | tee -a "$LOG_FILE"
+    fi
 }
 
 log_error() {
-    echo "$(date): [ERROR] $1" | tee -a "$LOG_FILE"
+    if [ "$LOG_ERROR" = true ]; then
+        echo "$(date): [ERROR] $1" | tee -a "$LOG_FILE"
+    fi
 }
 
 # Function to check if there's any API activity
@@ -51,10 +93,22 @@ check_ollama_activity() {
     fi
 
     cpu_usage=$(ps -p "$ollama_pid" -o %cpu --no-headers 2>/dev/null | awk '{s+=$1} END {print s}')
-    if [[ -n "$cpu_usage" && $(echo "$cpu_usage > 5.0" | bc -l) -eq 1 ]]; then
-        log_info "Ollama CPU activity detected: $cpu_usage%"
+    
+    if [[ -n "$cpu_usage" ]]; then
+        log_debug "Ollama CPU usage: $cpu_usage% (threshold: $ACTIVITY_THRESHOLD%)"
+        if [[ $(echo "$cpu_usage > $ACTIVITY_THRESHOLD" | bc -l) -eq 1 ]]; then
+            log_info "Ollama CPU activity detected: $cpu_usage%"
+            return 0 # Activity detected
+        fi
+    fi
+    
+    # Check for ongoing requests in Ollama logs
+    if grep -q "streaming response" /workspace/logs/ollama.log 2>/dev/null; then
+        last_stream=$(grep "streaming response" /workspace/logs/ollama.log | tail -1)
+        log_info "Active streaming detected: $last_stream"
         return 0 # Activity detected
     fi
+    
     return 1 # No activity
 }
 
