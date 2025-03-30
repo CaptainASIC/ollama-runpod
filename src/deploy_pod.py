@@ -1,4 +1,54 @@
-#!/usr/bin/env python3
+def deploy_pod_web_format(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Use the exact format from the web interface"""
+        print("Attempting deployment using web interface format...")
+        
+        # This query format is based on the actual requests made by the RunPod web interface
+        query = """
+        mutation OnDemandPodDeployMutation($input: OnDemandPodDeployInput!) {
+            podDeployOnDemand(input: $input) {
+                id
+                name
+                imageName
+                templateId
+                desiredStatus
+                lastStatusChange
+                env {
+                    key
+                    value
+                }
+                ports
+                gpuCount
+            }
+        }
+        """
+        
+        # Convert our config to the format used by the web interface
+        web_config = {
+            "containerDiskSize": config["containerDiskInGb"],
+            "dockerArgs": "",
+            "env": config["env"],
+            "gpuCount": config["gpuCount"],
+            "gpuTypeId": config["gpuTypeId"],
+            "imageName": config["containerImageName"],
+            "name": config["name"],
+            "ports": config["ports"],
+            "volumeSize": config["volumeInGb"],
+            "volumeMountPath": config["volumeMountPath"]
+        }
+        
+        try:
+            result = self.query(query, {"input": web_config})
+            
+            if "errors" in result:
+                print("Web format deployment failed:")
+                for error in result["errors"]:
+                    print(f"- {error['message']}")
+                return None
+            
+            return result["data"]["podDeployOnDemand"]
+        except Exception as e:
+            print(f"Web format deployment failed: {e}")
+            return None#!/usr/bin/env python3
 """
 deploy_pod.py - RunPod deployment utility for Ollama with auto-shutdown
 """
@@ -100,46 +150,142 @@ class RunPodClient:
             print(f"Error communicating with RunPod API: {e}")
             sys.exit(1)
     
-    def deploy_pod(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Deploy a pod with the given configuration"""
-        # Updated mutation to use podFindAndDeploy which is more robust
-        query = """
-        mutation Deploy($input: PodFindAndDeployInput!) {
-          podFindAndDeploy(input: $input) {
-            id
-            name
-            runtime {
-              startedAt
-              uptimeSeconds
-              ports {
-                ip
-                isIpPublic
-                privatePort
-                publicPort
+    def deploy_pod_multi_attempt(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Try multiple deployment mutations until one succeeds"""
+        print("Trying different RunPod API deployment methods...")
+        
+        # Try the web-based format first (most likely to work)
+        web_result = self.deploy_pod_web_format(config)
+        if web_result:
+            print("Success with web interface format")
+            return web_result
+        
+        # Try podGenerate 
+        try:
+            query = """
+            mutation PodGenerate($input: PodGenerateInput!) {
+              podGenerate(input: $input) {
+                id
+                name
+                runtime {
+                  uptimeSeconds
+                  ports {
+                    ip
+                    publicPort
+                  }
+                }
+                imageName
+                templateId
               }
             }
-            imageName
-            machine {
-              gpuDisplayName
-              podHostId
+            """
+            
+            print("Attempt 1: Using podGenerate mutation")
+            
+            # Adjust config for this mutation
+            deploy_config = {
+                "name": config["name"],
+                "imageName": config["containerImageName"],
+                "gpuCount": config["gpuCount"],
+                "volumeSize": config["volumeInGb"],
+                "containerDiskSize": config["containerDiskInGb"],
+                "gpuType": config["gpuTypeId"],
+                "env": config["env"],
+                "ports": config["ports"],
+                "volumeMountPath": config["volumeMountPath"]
             }
-            desiredStatus
-          }
-        }
-        """
+            
+            result = self.query(query, {"input": deploy_config})
+            
+            if "errors" not in result and "data" in result and "podGenerate" in result["data"]:
+                print("Success with podGenerate mutation")
+                return result["data"]["podGenerate"]
+            
+        except Exception as e:
+            print(f"Attempt 1 failed: {e}")
         
-        # Debug information
-        print(f"Sending pod deployment request to RunPod API")
+        # If that fails, try podDeploy
+        try:
+            query = """
+            mutation podDeploy($input: PodDeployInput!) {
+                podDeploy(input: $input) {
+                    id
+                    name
+                    runtime {
+                        ports {
+                            ip
+                            publicPort
+                        }
+                    }
+                    imageName
+                }
+            }
+            """
+            
+            print("Attempt 2: Using podDeploy mutation")
+            
+            # Adjust config for this mutation (might need different field names)
+            deploy_config = {
+                "name": config["name"],
+                "imageName": config["containerImageName"],
+                "gpuCount": config["gpuCount"],
+                "volumeInGb": config["volumeInGb"],
+                "containerDiskInGb": config["containerDiskInGb"],
+                "gpuType": config["gpuTypeId"],
+                "env": config["env"],
+                "ports": config["ports"],
+                "volumeMountPath": config["volumeMountPath"]
+            }
+            
+            result = self.query(query, {"input": deploy_config})
+            
+            if "errors" not in result and "data" in result and "podDeploy" in result["data"]:
+                print("Success with podDeploy mutation")
+                return result["data"]["podDeploy"]
+            
+        except Exception as e:
+            print(f"Attempt 2 failed: {e}")
         
-        result = self.query(query, {"input": config})
+        # Final attempt: podDeployOnDemand
+        try:
+            query = """
+            mutation podDeployOnDemand($input: PodDeployOnDemandInput!) {
+                podDeployOnDemand(input: $input) {
+                    id
+                    name
+                    imageName
+                }
+            }
+            """
+            
+            print("Attempt 3: Using podDeployOnDemand mutation")
+            
+            # Adjust config for this mutation
+            deploy_config = {
+                "cloudType": "ALL",
+                "gpuCount": config["gpuCount"],
+                "name": config["name"],
+                "containerDiskSizeGB": config["containerDiskInGb"],
+                "gpuType": config["gpuTypeId"],
+                "volumeInGB": config["volumeInGb"],
+                "volumeMountPath": config["volumeMountPath"],
+                "containerImageName": config["containerImageName"],
+                "env": config["env"],
+                "ports": config["ports"]
+            }
+            
+            result = self.query(query, {"input": deploy_config})
+            
+            if "errors" not in result and "data" in result and "podDeployOnDemand" in result["data"]:
+                print("Success with podDeployOnDemand mutation")
+                return result["data"]["podDeployOnDemand"]
+            
+        except Exception as e:
+            print(f"Attempt 3 failed: {e}")
         
-        if "errors" in result:
-            print("Error deploying pod:")
-            for error in result["errors"]:
-                print(f"- {error['message']}")
-            sys.exit(1)
-        
-        return result["data"]["podFindAndDeploy"]
+        # If all attempts fail
+        print("All deployment attempts failed")
+        sys.exit(1)
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -371,7 +517,12 @@ def main() -> None:
     
     # Deploy pod
     print("Deploying pod... (this may take a minute)")
-    pod = client.deploy_pod(pod_config)
+    try:
+        # Try the multi-attempt approach which tries different mutations
+        pod = client.deploy_pod_multi_attempt(pod_config)
+    except Exception as e:
+        print(f"Error deploying pod: {e}")
+        sys.exit(1)
     
     # Display pod information
     display_pod_info(pod, args)
