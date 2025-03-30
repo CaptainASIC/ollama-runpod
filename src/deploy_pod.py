@@ -12,282 +12,11 @@ import time
 from pathlib import Path
 from typing import Dict, Any, Optional
 
+# Import REST API client
+from runpod_rest_client import RunPodRestClient
+
 # Constants
-API_URL = "https://api.runpod.io/graphql"
 VERSION = "1.0.0"
-
-
-class RunPodClient:
-    """Client for interacting with RunPod API"""
-    
-    def __init__(self, api_key: str):
-        """Initialize with API key"""
-        self.api_key = api_key
-        self.headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-    
-    def verify_api_key(self) -> bool:
-        """Verify that the API key is valid by making a simple query"""
-        try:
-            query = """
-            query {
-                myself {
-                    id
-                    email
-                }
-            }
-            """
-            
-            response = requests.post(
-                API_URL,
-                headers=self.headers,
-                json={"query": query}
-            )
-            
-            if response.status_code != 200:
-                print(f"API Key verification failed: {response.status_code} - {response.text}")
-                return False
-                
-            data = response.json()
-            
-            if "errors" in data:
-                print(f"API Key verification failed: {data['errors'][0]['message']}")
-                return False
-                
-            if "data" in data and "myself" in data["data"] and data["data"]["myself"]:
-                print(f"API Key verified for user: {data['data']['myself'].get('email', 'Unknown')}")
-                return True
-                
-            return False
-            
-        except Exception as e:
-            print(f"API Key verification failed: {e}")
-            return False
-    
-    def query(self, query_str: str, variables: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute GraphQL query against RunPod API"""
-        try:
-            # For debugging
-            # print(f"Query: {query_str}")
-            # print(f"Variables: {json.dumps(variables, indent=2)}")
-            
-            response = requests.post(
-                API_URL,
-                headers=self.headers,
-                json={"query": query_str, "variables": variables}
-            )
-            
-            # Print detailed debug information for any error
-            if response.status_code != 200:
-                print(f"API Error Status Code: {response.status_code}")
-                print(f"API Error Response: {response.text}")
-                print(f"Request data: {json.dumps({'query': query_str, 'variables': variables}, indent=2)}")
-                response.raise_for_status()
-            
-            data = response.json()
-            
-            # Check for GraphQL errors even with status 200
-            if "errors" in data:
-                print(f"GraphQL Error Response: {json.dumps(data['errors'], indent=2)}")
-                # Return the data with errors so the caller can handle it
-                return data
-            
-            return data
-            
-        except requests.exceptions.RequestException as e:
-            print(f"Error communicating with RunPod API: {e}")
-            sys.exit(1)
-    
-    def deploy_pod_web_format(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Use the exact format from the web interface"""
-        print("Attempting deployment using web interface format...")
-        
-        # This query format is based on the actual requests made by the RunPod web interface
-        query = """
-        mutation OnDemandPodDeployMutation($input: OnDemandPodDeployInput!) {
-            podDeployOnDemand(input: $input) {
-                id
-                name
-                imageName
-                templateId
-                desiredStatus
-                lastStatusChange
-                env {
-                    key
-                    value
-                }
-                ports
-                gpuCount
-            }
-        }
-        """
-        
-        # Convert our config to the format used by the web interface
-        web_config = {
-            "containerDiskSize": config["containerDiskInGb"],
-            "dockerArgs": "",
-            "env": config["env"],
-            "gpuCount": config["gpuCount"],
-            "gpuTypeId": config["gpuTypeId"],
-            "imageName": config["containerImageName"],
-            "name": config["name"],
-            "ports": config["ports"],
-            "volumeSize": config["volumeInGb"],
-            "volumeMountPath": config["volumeMountPath"]
-        }
-        
-        try:
-            result = self.query(query, {"input": web_config})
-            
-            if "errors" in result:
-                print("Web format deployment failed:")
-                for error in result["errors"]:
-                    print(f"- {error['message']}")
-                return None
-            
-            return result["data"]["podDeployOnDemand"]
-        except Exception as e:
-            print(f"Web format deployment failed: {e}")
-            return None
-    
-    def deploy_pod_multi_attempt(self, config: Dict[str, Any]) -> Dict[str, Any]:
-        """Try multiple deployment mutations until one succeeds"""
-        print("Trying different RunPod API deployment methods...")
-        
-        # Try the web-based format first (most likely to work)
-        web_result = self.deploy_pod_web_format(config)
-        if web_result:
-            print("Success with web interface format")
-            return web_result
-        
-        # Try podGenerate 
-        try:
-            query = """
-            mutation PodGenerate($input: PodGenerateInput!) {
-              podGenerate(input: $input) {
-                id
-                name
-                runtime {
-                  uptimeSeconds
-                  ports {
-                    ip
-                    publicPort
-                  }
-                }
-                imageName
-                templateId
-              }
-            }
-            """
-            
-            print("Attempt 1: Using podGenerate mutation")
-            
-            # Adjust config for this mutation
-            deploy_config = {
-                "name": config["name"],
-                "imageName": config["containerImageName"],
-                "gpuCount": config["gpuCount"],
-                "volumeSize": config["volumeInGb"],
-                "containerDiskSize": config["containerDiskInGb"],
-                "gpuType": config["gpuTypeId"],
-                "env": config["env"],
-                "ports": config["ports"],
-                "volumeMountPath": config["volumeMountPath"]
-            }
-            
-            result = self.query(query, {"input": deploy_config})
-            
-            if "errors" not in result and "data" in result and "podGenerate" in result["data"]:
-                print("Success with podGenerate mutation")
-                return result["data"]["podGenerate"]
-            
-        except Exception as e:
-            print(f"Attempt 1 failed: {e}")
-        
-        # If that fails, try podDeploy
-        try:
-            query = """
-            mutation podDeploy($input: PodDeployInput!) {
-                podDeploy(input: $input) {
-                    id
-                    name
-                    runtime {
-                        ports {
-                            ip
-                            publicPort
-                        }
-                    }
-                    imageName
-                }
-            }
-            """
-            
-            print("Attempt 2: Using podDeploy mutation")
-            
-            # Adjust config for this mutation (might need different field names)
-            deploy_config = {
-                "name": config["name"],
-                "imageName": config["containerImageName"],
-                "gpuCount": config["gpuCount"],
-                "volumeInGb": config["volumeInGb"],
-                "containerDiskInGb": config["containerDiskInGb"],
-                "gpuType": config["gpuTypeId"],
-                "env": config["env"],
-                "ports": config["ports"],
-                "volumeMountPath": config["volumeMountPath"]
-            }
-            
-            result = self.query(query, {"input": deploy_config})
-            
-            if "errors" not in result and "data" in result and "podDeploy" in result["data"]:
-                print("Success with podDeploy mutation")
-                return result["data"]["podDeploy"]
-            
-        except Exception as e:
-            print(f"Attempt 2 failed: {e}")
-        
-        # Final attempt: podDeployOnDemand
-        try:
-            query = """
-            mutation podDeployOnDemand($input: PodDeployOnDemandInput!) {
-                podDeployOnDemand(input: $input) {
-                    id
-                    name
-                    imageName
-                }
-            }
-            """
-            
-            print("Attempt 3: Using podDeployOnDemand mutation")
-            
-            # Adjust config for this mutation
-            deploy_config = {
-                "cloudType": "ALL",
-                "gpuCount": config["gpuCount"],
-                "name": config["name"],
-                "containerDiskSizeGB": config["containerDiskInGb"],
-                "gpuType": config["gpuTypeId"],
-                "volumeInGB": config["volumeInGb"],
-                "volumeMountPath": config["volumeMountPath"],
-                "containerImageName": config["containerImageName"],
-                "env": config["env"],
-                "ports": config["ports"]
-            }
-            
-            result = self.query(query, {"input": deploy_config})
-            
-            if "errors" not in result and "data" in result and "podDeployOnDemand" in result["data"]:
-                print("Success with podDeployOnDemand mutation")
-                return result["data"]["podDeployOnDemand"]
-            
-        except Exception as e:
-            print(f"Attempt 3 failed: {e}")
-        
-        # If all attempts fail
-        print("All deployment attempts failed")
-        sys.exit(1)
 
 
 def load_env_file(file_path: str) -> Dict[str, str]:
@@ -360,20 +89,18 @@ def create_pod_config(args: argparse.Namespace) -> Dict[str, Any]:
         # Add NVIDIA prefix if needed for standard types
         gpu_type = f"NVIDIA {gpu_type}"
         print(f"Note: Changed GPU type to '{gpu_type}' for compatibility")
-        
-    # Format the pod configuration for podFindAndDeploy mutation
+    
+    # Create REST API format config
     return {
+        "name": args.name,
+        "containerImageName": args.image,
         "gpuCount": 1,
         "volumeInGb": args.volume_size_gb,
         "containerDiskInGb": args.container_disk_size_gb,
-        "minVcpu": args.min_vcpu,
-        "minMemoryInGb": args.min_memory_gb,
         "gpuTypeId": gpu_type,
-        "containerImageName": args.image,
         "env": env_vars,
         "ports": "11434/http",
-        "volumeMountPath": "/workspace",
-        "name": args.name
+        "volumeMountPath": "/workspace"
     }
 
 def display_pod_info(pod: Dict[str, Any], args: argparse.Namespace) -> None:
@@ -382,23 +109,14 @@ def display_pod_info(pod: Dict[str, Any], args: argparse.Namespace) -> None:
     print(f"Pod deployed successfully!")
     print("="*50)
     
-    # Extract basic info
+    # Extract pod information
     pod_id = pod.get('id', 'Unknown')
     pod_name = pod.get('name', 'Unknown')
     image_name = pod.get('imageName', 'Unknown')
-    
-    # Extract runtime info if available
-    runtime = pod.get('runtime', {})
-    started_at = runtime.get('startedAt', 'Unknown')
-    
-    # Extract machine info if available
-    machine = pod.get('machine', {})
-    gpu_type = machine.get('gpuDisplayName', args.gpu_type)
+    gpu_type = pod.get('gpuType', args.gpu_type)
     
     print(f"Pod ID: {pod_id}")
     print(f"Pod Name: {pod_name}")
-    if started_at != 'Unknown':
-        print(f"Started At: {started_at}")
     print(f"Container Image: {image_name}")
     print(f"GPU Type: {gpu_type}")
     
@@ -514,8 +232,8 @@ def main() -> None:
         print("Deployment cancelled.")
         return
     
-    # Use API key from environment or command line
-    client = RunPodClient(api_key)
+    # Create REST API client
+    client = RunPodRestClient(api_key)
     
     # Verify API key is valid
     print("Verifying RunPod API key...")
@@ -532,14 +250,11 @@ def main() -> None:
     # Deploy pod
     print("Deploying pod... (this may take a minute)")
     try:
-        # Try the multi-attempt approach which tries different mutations
-        pod = client.deploy_pod_multi_attempt(pod_config)
+        pod = client.deploy_pod(pod_config)
+        display_pod_info(pod, args)
     except Exception as e:
         print(f"Error deploying pod: {e}")
         sys.exit(1)
-    
-    # Display pod information
-    display_pod_info(pod, args)
 
 
 if __name__ == "__main__":
