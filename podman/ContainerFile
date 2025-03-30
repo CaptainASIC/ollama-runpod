@@ -13,6 +13,7 @@ RUN apt-get update && \
     procps \
     net-tools \
     bc \
+    nvtop \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -47,7 +48,7 @@ ACTIVITY_THRESHOLD=5.0\n\
 # Copy files - adjusted paths to be relative to the podman directory
 COPY ../scripts/ /app/scripts/
 COPY ../config/ /app/config/
-COPY entrypoint.sh /app/entrypoint.sh
+COPY podman/entrypoint.sh /app/entrypoint.sh
 
 # Set permissions
 RUN chmod +x /app/scripts/*.sh && \
