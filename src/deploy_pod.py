@@ -157,9 +157,9 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument('--name', default='Ollama-Pod', help='Pod name')
     parser.add_argument('--timeout', type=int, default=60, 
                         help='Auto-shutdown timeout in seconds')
-    parser.add_argument('--container-disk-size-gb', type=int, default=5, 
+    parser.add_argument('--container-disk-size-gb', type=int, default=250, 
                         help='Container disk size in GB')
-    parser.add_argument('--volume-size-gb', type=int, default=250,
+    parser.add_argument('--volume-size-gb', type=int, default=50,
                         help='Storage volume size in GB')
     parser.add_argument('--min-vcpu', type=int, default=2,
                         help='Minimum vCPU cores')
