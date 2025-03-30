@@ -165,7 +165,7 @@ def parse_arguments() -> argparse.Namespace:
                         help='Minimum vCPU cores')
     parser.add_argument('--min-memory-gb', type=int, default=15,
                         help='Minimum memory in GB')
-    parser.add_argument('--image', default='p3rco/ollama-podman',
+    parser.add_argument('--image', default='p3rco/ollama-podman:latest',
                         help='Container image to use')
     
     # Environment variable arguments
