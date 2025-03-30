@@ -53,25 +53,17 @@ class RunPodRestClient:
                     if "key" in env_var and "value" in env_var:
                         env_dict[env_var["key"]] = env_var["value"]
             
-            # Convert ports string to array
+            # Convert ports string to array of strings
             ports_array = []
             if "ports" in config and isinstance(config["ports"], str):
                 # Split by comma if multiple ports are provided
                 port_strings = config["ports"].split(",")
                 for port_str in port_strings:
-                    port_str = port_str.strip()
-                    if "/" in port_str:
-                        port, protocol = port_str.split("/", 1)
-                        ports_array.append({
-                            "port": int(port),
-                            "protocol": protocol.strip().upper()
-                        })
-                    else:
-                        # Default to TCP if protocol not specified
-                        ports_array.append({
-                            "port": int(port_str),
-                            "protocol": "TCP"
-                        })
+                    ports_array.append(port_str.strip())
+            
+            # Get GPU type as array for gpuTypeIds
+            gpu_type = config.get("gpuTypeId", "NVIDIA RTX A5000")
+            gpu_types_array = [gpu_type]
             
             # Format the config for the REST API
             rest_config = {
@@ -80,7 +72,7 @@ class RunPodRestClient:
                 "gpuCount": config.get("gpuCount", 1),
                 "volumeInGb": config.get("volumeInGb", 50),
                 "containerDiskInGb": config.get("containerDiskInGb", 5),
-                "gpuTypeId": config.get("gpuTypeId", "NVIDIA RTX A5000"),
+                "gpuTypeIds": gpu_types_array,  # Updated to gpuTypeIds (plural)
                 "env": env_dict,
                 "ports": ports_array,
                 "volumeMountPath": config.get("volumeMountPath", "/workspace")
