@@ -33,13 +33,9 @@ class RunPodRestClient:
                 print(f"API Key verification failed: {response.status_code} - {response.text}")
                 return False
             
-            # Check if we got a valid response
-            data = response.json()
-            if "pods" in data:
-                print(f"API Key verified successfully!")
-                return True
-            
-            return False
+            # Any 200 response means the API key is valid
+            print(f"API Key verified successfully!")
+            return True
             
         except Exception as e:
             print(f"API Key verification failed: {e}")
