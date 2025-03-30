@@ -85,7 +85,7 @@ def parse_arguments() -> argparse.Namespace:
     )
     
     # Basic deployment arguments
-    parser.add_argument('--api-key', required=True, help='RunPod API key')
+    parser.add_argument('--api-key', help='RunPod API key (optional if provided in env-file)')
     parser.add_argument('--gpu-type', default='NVIDIA A40', help='GPU type')
     parser.add_argument('--cloud-type', default='ALL', help='Cloud type')
     parser.add_argument('--name', default='Ollama-Pod', help='Pod name')
@@ -228,6 +228,19 @@ def main() -> None:
     print(f"Ollama RunPod Deployer v{VERSION}")
     args = parse_arguments()
     
+    # Check for API key in env file if not provided directly
+    api_key = args.api_key
+    if not api_key and args.env_file:
+        env_vars = load_env_file(args.env_file)
+        if 'RUNPOD_API_KEY' in env_vars:
+            api_key = env_vars['RUNPOD_API_KEY']
+            print("Using API key from environment file")
+    
+    # Verify we have an API key from somewhere
+    if not api_key:
+        print("Error: RunPod API key is required. Provide it with --api-key or in your environment file.")
+        sys.exit(1)
+    
     print(f"Deploying Ollama pod on RunPod with {args.gpu_type}...")
     
     # Display configuration summary
@@ -246,7 +259,11 @@ def main() -> None:
         print("Deployment cancelled.")
         return
     
-    client = RunPodClient(args.api_key)
+    # Use API key from environment or command line
+    client = RunPodClient(api_key)
+    
+    # Store API key in args for config creation
+    args.api_key = api_key
     
     # Create pod configuration
     pod_config = create_pod_config(args)

@@ -61,13 +61,21 @@ echo -e "${BLUE}Creating configuration file: $OUTPUT_FILE${NC}"
 echo -e "${YELLOW}Press Enter to accept default values${NC}"
 echo ""
 
-# Initialize the file with a header
+# Initialize the file with a header and make sure it's writable
 cat > "$OUTPUT_FILE" << EOL
 # Ollama RunPod configuration
 # Generated on $(date)
 # ----------------------------------
 
 EOL
+
+# Verify the file was created successfully
+if [ ! -f "$OUTPUT_FILE" ]; then
+    echo -e "${RED}Error: Failed to create configuration file. Check permissions.${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}Configuration file initialized at: $OUTPUT_FILE${NC}"
 
 # Function to prompt for a value with default
 prompt_value() {
@@ -83,12 +91,22 @@ prompt_value() {
     read -p "$prompt [$default]: " value
     value=${value:-$default}
     
+    # Write to file with explicit line breaks
     echo "" >> "$OUTPUT_FILE"
     if [ -n "$description" ]; then
         echo "# $description" >> "$OUTPUT_FILE"
     fi
     echo "$var_name=$value" >> "$OUTPUT_FILE"
-    echo -e "${GREEN}Set $var_name=$value${NC}"
+    
+    # Verify it was written
+    if ! grep -q "$var_name=" "$OUTPUT_FILE"; then
+        echo -e "${RED}Warning: Failed to write $var_name to file. Check permissions.${NC}"
+    else
+        echo -e "${GREEN}Set $var_name=$value${NC}"
+    fi
+    
+    # Force flush to disk
+    sync
 }
 
 # Host configuration
@@ -167,6 +185,23 @@ if [[ "$advanced_config" =~ ^[Yy]$ ]]; then
 fi
 
 echo -e "\n${GREEN}Configuration file created successfully: $OUTPUT_FILE${NC}"
+
+# Verify the file contains what we expect
+if [ -f "$OUTPUT_FILE" ]; then
+    file_size=$(wc -c < "$OUTPUT_FILE")
+    var_count=$(grep -c "=" "$OUTPUT_FILE")
+    
+    echo -e "${BLUE}File size: $file_size bytes, Variables defined: $var_count${NC}"
+    
+    if [ "$file_size" -lt 100 ] || [ "$var_count" -lt 3 ]; then
+        echo -e "${YELLOW}Warning: The configuration file seems smaller than expected.${NC}"
+        echo -e "${YELLOW}Content of the file:${NC}"
+        cat "$OUTPUT_FILE"
+    fi
+else
+    echo -e "${RED}Error: Something went wrong. File not found after creation.${NC}"
+fi
+
 echo -e "${BLUE}You can use this file with:${NC}"
 echo "  - Python deployment: --env-file $OUTPUT_FILE"
 echo "  - Podman build: --env-file $OUTPUT_FILE"

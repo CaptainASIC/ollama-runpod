@@ -4,15 +4,27 @@ You can customize your Ollama RunPod instance using environment variables, which
 
 ### Interactive Configuration
 
-The easiest way to create a custom configuration is to use the interactive script:
+The easiest way to create a custom configuration is to use one of the provided scripts:
 
 ```bash
-# Create a custom configuration file
+# Interactive configuration (recommended)
 ./scripts/create-config.sh
 
-# Use the generated config with deployment
-python src/deploy_pod.py --api-key YOUR_API_KEY --env-file ./config/my-config.env
+# Simple predefined configuration (alternative)
+./scripts/simple-config.sh
+
+# If you're having issues, run the debug tool
+./scripts/debug-config.sh
 ```
+
+After creating your configuration, you can use it with any deployment method:
+
+```bash
+# Use the generated config with deployment
+python src/deploy_pod.py --env-file ./config/my-config.env
+```
+
+Note: When your RunPod API key is included in the environment file, you don't need to provide it separately with the --api-key parameter.
 
 ### Available Configuration Options
 
@@ -61,18 +73,18 @@ cd ollama-runpod
 # Install dependencies
 pip install -r requirements.txt
 
-# Basic deployment with default settings
+# Basic deployment with API key directly
 python src/deploy_pod.py --api-key YOUR_API_KEY
 
-# Deployment with custom environment settings
+# Deployment with custom environment settings inline
 python src/deploy_pod.py --api-key YOUR_API_KEY \
   --timeout 300 \
   --gpu-type "NVIDIA RTX A5000" \
   --preload-models "mistral,llama2" \
   --log-level DEBUG
 
-# Deployment using environment file
-python src/deploy_pod.py --api-key YOUR_API_KEY --env-file ./config/my-config.env
+# Deployment using environment file (API key included in file)
+python src/deploy_pod.py --env-file ./config/my-config.env
 ```
 
 ### Option 2: Build and Push Container with Podman
