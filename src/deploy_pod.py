@@ -69,6 +69,10 @@ class RunPodClient:
     def query(self, query_str: str, variables: Dict[str, Any]) -> Dict[str, Any]:
         """Execute GraphQL query against RunPod API"""
         try:
+            # For debugging
+            # print(f"Query: {query_str}")
+            # print(f"Variables: {json.dumps(variables, indent=2)}")
+            
             response = requests.post(
                 API_URL,
                 headers=self.headers,
@@ -82,7 +86,16 @@ class RunPodClient:
                 print(f"Request data: {json.dumps({'query': query_str, 'variables': variables}, indent=2)}")
                 response.raise_for_status()
             
-            return response.json()
+            data = response.json()
+            
+            # Check for GraphQL errors even with status 200
+            if "errors" in data:
+                print(f"GraphQL Error Response: {json.dumps(data['errors'], indent=2)}")
+                # Return the data with errors so the caller can handle it
+                return data
+            
+            return data
+            
         except requests.exceptions.RequestException as e:
             print(f"Error communicating with RunPod API: {e}")
             sys.exit(1)
@@ -90,8 +103,8 @@ class RunPodClient:
     def deploy_pod(self, config: Dict[str, Any]) -> Dict[str, Any]:
         """Deploy a pod with the given configuration"""
         query = """
-        mutation podDeploy($input: PodDeployInput!) {
-            podDeploy(input: $input) {
+        mutation podDeployOnDemand($input: PodDeployOnDemandInput!) {
+            podDeployOnDemand(input: $input) {
                 id
                 name
                 runtime {
@@ -121,7 +134,7 @@ class RunPodClient:
                 print(f"- {error['message']}")
             sys.exit(1)
         
-        return result["data"]["podDeploy"]
+        return result["data"]["podDeployOnDemand"]
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -221,16 +234,16 @@ def create_pod_config(args: argparse.Namespace) -> Dict[str, Any]:
     
     # Format the pod configuration according to RunPod API requirements
     return {
-        "deploymentType": "GPU",
-        "gpuType": args.gpu_type,
         "cloudType": args.cloud_type,
+        "gpuCount": 1,
         "name": args.name,
-        "volumeInGb": args.volume_size_gb,
-        "containerDiskInGb": args.container_disk_size_gb,
+        "containerDiskSizeGB": args.container_disk_size_gb,
+        "gpuType": args.gpu_type,
+        "volumeInGB": args.volume_size_gb,
+        "volumeMountPath": "/workspace",
+        "containerImageName": args.image,
         "dockerArgs": "",
         "ports": "11434/http",
-        "volumeMountPath": "/workspace",
-        "imageName": args.image,
         "env": env_vars
     }
 
@@ -294,6 +307,15 @@ def main() -> None:
     if not api_key:
         print("Error: RunPod API key is empty.")
         sys.exit(1)
+        
+    # Check if API key looks like a valid RunPod API key
+    if not api_key.startswith("rpa_"):
+        print("Warning: API key doesn't start with 'rpa_'. This may not be a valid RunPod API key.")
+        print(f"Current API key format: {api_key[:5]}...{api_key[-4:]}")
+        confirm = input("Continue anyway? (y/n): ")
+        if confirm.lower() not in ['y', 'yes']:
+            print("Deployment cancelled.")
+            return
     
     print(f"Deploying Ollama pod on RunPod with {args.gpu_type}...")
     
